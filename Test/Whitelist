@@ -12,5 +12,12 @@
     "ownerUserId": "111222",
     "productId": "NAMA-PRODUK",
     "revoked": false
-  }
+  },
+  {
+    "creatorId": "8996507682",
+    "creatorType": "User",
+    "productId": "CenZ",
+    "revoked": false,
+    "expiresAt": null
+  },
 ]
