@@ -1,5 +1,12 @@
 [
   {
+    "creatorId": "FREE",
+    "creatorType": "User",
+    "productId": "Glight",
+    "revoked": false,
+    "expiresAt": 1784998800000
+  },
+  {
     "creatorId": "8996507682",
     "creatorType": "User",
     "productId": "NAMA-PRODUK",
@@ -12,5 +19,5 @@
     "ownerUserId": "111222",
     "productId": "NAMA-PRODUK",
     "revoked": false
-  },
+  }
 ]
