@@ -1,0 +1,766 @@
+-- =======================================================
+-- MUSIC SERVER
+-- Sistem musik server-side:
+-- - Putar musik bersamaan di semua client
+-- - Queue system
+-- - Skip vote (10 vote) + admin skip langsung
+-- - Request lagu via sound ID
+-- =======================================================
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local ServerStorage     = game:GetService("ServerStorage")
+local HttpService       = game:GetService("HttpService")
+
+local MusicData = require(ReplicatedStorage.MusicData)
+
+local RoleSystem = require(ServerStorage.Modules.RoleSystem)
+
+-- ============================================================
+-- REMOTES SETUP
+-- ============================================================
+local MusicRemotes = ReplicatedStorage:FindFirstChild("MusicRemotes")
+if not MusicRemotes then
+    MusicRemotes = Instance.new("Folder")
+    MusicRemotes.Name = "MusicRemotes"
+    MusicRemotes.Parent = ReplicatedStorage
+end
+
+local function getOrCreate(parent, name, className)
+    local obj = parent:FindFirstChild(name)
+    if not obj then
+        obj = Instance.new(className, parent)
+        obj.Name = name
+    end
+    return obj
+end
+
+-- RemoteEvents
+local SyncMusic       = getOrCreate(MusicRemotes, "SyncMusic",       "RemoteEvent")   -- server -> all: sync state
+local RequestSong     = getOrCreate(MusicRemotes, "RequestSong",     "RemoteEvent")   -- client -> server: request lagu
+local VoteSkip        = getOrCreate(MusicRemotes, "VoteSkip",        "RemoteEvent")   -- client -> server: vote skip
+local AdminSkip       = getOrCreate(MusicRemotes, "AdminSkip",       "RemoteEvent")   -- client -> server: admin skip
+local UpdateQueue     = getOrCreate(MusicRemotes, "UpdateQueue",     "RemoteEvent")   -- server -> all: update queue UI
+local UpdateSkipVotes = getOrCreate(MusicRemotes, "UpdateSkipVotes", "RemoteEvent")   -- server -> all: update vote count
+local SongEnded       = getOrCreate(MusicRemotes, "SongEnded",       "RemoteEvent")   -- server -> all: lagu selesai
+local ClientSongEnded = getOrCreate(MusicRemotes, "ClientSongEnded", "RemoteEvent")   -- client -> server: lagu selesai di client
+local AdminPause      = getOrCreate(MusicRemotes, "AdminPause",      "RemoteEvent")   -- client -> server: admin pause/resume
+local PauseState      = getOrCreate(MusicRemotes, "PauseState",      "RemoteEvent")   -- server -> all: broadcast pause state
+local GetMusicInfo    = getOrCreate(MusicRemotes, "GetMusicInfo",    "RemoteFunction") -- client -> server: get info lagu
+local GetSyncState    = getOrCreate(MusicRemotes, "GetSyncState",    "RemoteFunction") -- client -> server: get state saat join
+
+print("[MusicServer] Remotes created")
+
+-- ============================================================
+-- STATE
+-- ============================================================
+local SKIP_VOTES_REQUIRED = 10
+local MAX_QUEUE_SIZE      = 20
+
+local currentSong   = nil   -- {id, title, artist, image, duration, durationSecs, startTime, requestedBy}
+local songQueue     = {}    -- array of song data (HANYA request player, bukan autoplay)
+local skipVoters    = {}    -- [userId] = true
+local isPlaying     = false
+local playLoopConn  = nil
+
+-- AutoPlay state (terpisah dari queue)
+local autoPlayList     = {}    -- shuffled list lagu untuk autoplay
+local autoPlayIndex    = 0     -- index lagu autoplay saat ini
+local isAutoPlaySong   = false -- apakah lagu saat ini dari autoplay
+
+-- Admin roles yang bisa skip langsung
+local ADMIN_ROLES = {Owner=true, ["Co-Owner"]=true, Developer=true, Admin=true, Moderator=true}
+
+-- ============================================================
+-- HELPERS
+-- ============================================================
+local function isAdminPlayer(player)
+    local role = RoleSystem:GetPlayerRole(player)
+    if ADMIN_ROLES[role] then return true end
+    if player.UserId == game.CreatorId then return true end
+    -- Cek StaffList
+    local staffNames = {luxwoldjalipa40=true, BeHumbble=true, rip_sc355=true}
+    if staffNames[player.Name] then return true end
+    return false
+end
+
+local function durationToSeconds(durStr)
+    if not durStr then return 180 end
+    local parts = durStr:split(":")
+    if #parts == 2 then
+        return (tonumber(parts[1]) or 0) * 60 + (tonumber(parts[2]) or 0)
+    end
+    return 180
+end
+
+local function secondsToDuration(secs)
+    secs = math.floor(secs)
+    local m = math.floor(secs / 60)
+    local s = secs % 60
+    return string.format("%d:%02d", m, s)
+end
+
+local function getPlayerCount()
+    return #Players:GetPlayers()
+end
+
+local function broadcastQueue()
+    local queueData = {}
+    for i, song in ipairs(songQueue) do
+        table.insert(queueData, {
+            id          = song.id,
+            title       = song.title,
+            artist      = song.artist,
+            image       = song.image,
+            duration    = song.duration,
+            requestedBy = song.requestedBy,
+        })
+    end
+    UpdateQueue:FireAllClients(queueData)
+end
+
+local function broadcastSkipVotes()
+    local count = 0
+    for _ in pairs(skipVoters) do count = count + 1 end
+    UpdateSkipVotes:FireAllClients(count, SKIP_VOTES_REQUIRED)
+end
+
+local function broadcastCurrentSong()
+    if not currentSong then
+        SyncMusic:FireAllClients(nil)
+        return
+    end
+    local elapsed = tick() - currentSong.startTime
+    SyncMusic:FireAllClients({
+        id          = currentSong.id,
+        title       = currentSong.title,
+        artist      = currentSong.artist,
+        image       = currentSong.image,
+        duration    = currentSong.duration,
+        durationSecs = currentSong.durationSecs,
+        startTime   = currentSong.startTime,
+        elapsed     = elapsed,
+        requestedBy = currentSong.requestedBy,
+        isAutoPlay  = currentSong.isAutoPlay or false,
+    })
+end
+
+-- ============================================================
+-- AUTOPLAY HELPERS
+-- ============================================================
+local function buildAutoPlaylist()
+    local list = {}
+    for _, playlist in ipairs(MusicData.Playlists) do
+        for _, song in ipairs(playlist.songs) do
+            local duplicate = false
+            for _, existing in ipairs(list) do
+                if existing.id == tostring(song.id) then
+                    duplicate = true
+                    break
+                end
+            end
+            if not duplicate then
+                table.insert(list, {
+                    id           = tostring(song.id):gsub("rbxassetid://", ""),
+                    title        = song.title or "Unknown",
+                    artist       = song.artist or "Unknown",
+                    image        = song.image or "rbxassetid://71878240456460",
+                    duration     = song.duration or "0:00",
+                    durationSecs = song.duration and durationToSeconds(song.duration) or 300,
+                    requestedBy  = "AutoPlay",
+                })
+            end
+        end
+    end
+    return list
+end
+
+local function shuffleTable(t)
+    for i = #t, 2, -1 do
+        local j = math.random(1, i)
+        t[i], t[j] = t[j], t[i]
+    end
+end
+
+local function getNextAutoPlaySong()
+    -- Rebuild & reshuffle jika habis atau kosong
+    if #autoPlayList == 0 then
+        autoPlayList = buildAutoPlaylist()
+        shuffleTable(autoPlayList)
+        autoPlayIndex = 0
+    end
+    if #autoPlayList == 0 then return nil end
+
+    autoPlayIndex = autoPlayIndex + 1
+    if autoPlayIndex > #autoPlayList then
+        -- Shuffle ulang dan mulai dari awal
+        shuffleTable(autoPlayList)
+        autoPlayIndex = 1
+    end
+    return autoPlayList[autoPlayIndex]
+end
+
+-- ============================================================
+-- PLAY NEXT SONG
+-- Prioritas: queue player dulu → jika kosong → autoplay
+-- ============================================================
+local function playNext()
+    skipVoters = {}
+
+    local song = nil
+
+    -- Prioritas 1: Ambil dari queue player
+    if #songQueue > 0 then
+        song = table.remove(songQueue, 1)
+        isAutoPlaySong = false
+    else
+        -- Prioritas 2: AutoPlay (tidak masuk queue, langsung play)
+        song = getNextAutoPlaySong()
+        isAutoPlaySong = true
+    end
+
+    if not song then
+        isPlaying = false
+        currentSong = nil
+        SyncMusic:FireAllClients(nil)
+        return
+    end
+
+    currentSong = {
+        id           = song.id,
+        title        = song.title,
+        artist       = song.artist,
+        image        = song.image,
+        duration     = song.duration,
+        durationSecs = song.durationSecs or durationToSeconds(song.duration),
+        startTime    = tick(),
+        requestedBy  = song.requestedBy,
+        isAutoPlay   = isAutoPlaySong,
+    }
+    isPlaying = true
+
+    local source = isAutoPlaySong and "AutoPlay" or "Queue"
+    print(string.format("[MusicServer] Now playing (%s): %s by %s", source, currentSong.title, currentSong.artist))
+
+    -- Broadcast ke semua client
+    broadcastCurrentSong()
+    broadcastQueue()
+    broadcastSkipVotes()
+
+    -- Timer fallback: durasi + 90 detik (generous buffer)
+    local songDuration = currentSong.durationSecs
+    local startedAt   = currentSong.startTime
+    local songId      = currentSong.id
+
+    task.spawn(function()
+        task.wait(songDuration + 90)
+        if currentSong and currentSong.startTime == startedAt and currentSong.id == songId then
+            if not isPaused then
+                print("[MusicServer] Fallback timeout - forcing next")
+                isPlaying = false
+                SongEnded:FireAllClients()
+                task.wait(1)
+                playNext()
+            end
+        end
+    end)
+end
+
+-- Client notify: lagu benar-benar selesai di Sound.Ended
+local songEndedDebounce = false
+ClientSongEnded.OnServerEvent:Connect(function(player)
+    -- Hanya proses dari 1 client (yang pertama notify)
+    if songEndedDebounce then return end
+    if not currentSong then return end
+    songEndedDebounce = true
+
+    print("[MusicServer] Client notified song ended:", currentSong.title)
+    isPlaying = false
+    SongEnded:FireAllClients()
+    task.wait(1)
+    playNext()
+
+    task.delay(2, function()
+        songEndedDebounce = false
+    end)
+end)
+
+-- ============================================================
+-- GET MUSIC INFO VIA MARKETPLACE
+-- ============================================================
+local function getMusicInfo(soundId)
+    -- Bersihkan ID (hapus prefix rbxassetid://)
+    local cleanId = tostring(soundId):gsub("rbxassetid://", "")
+    local numId = tonumber(cleanId)
+    if not numId then return nil end
+
+    local ok, info = pcall(function()
+        return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Asset)
+    end)
+
+    if ok and info then
+        -- Cek apakah ini audio asset
+        if info.AssetTypeId == 3 then  -- 3 = Audio
+            return {
+                id       = tostring(numId),
+                title    = info.Name or "Unknown",
+                artist   = info.Creator and info.Creator.Name or "Unknown",
+                image    = "rbxassetid://71878240456460",  -- default image
+                duration = "0:00",  -- akan diupdate saat client load
+                durationSecs = 300, -- default 5 menit
+            }
+        end
+    end
+    return nil
+end
+
+-- ============================================================
+-- REMOTE HANDLERS
+-- ============================================================
+
+-- Client request lagu
+RequestSong.OnServerEvent:Connect(function(player, soundId)
+    if not soundId then return end
+
+    -- Rate limit: 1 request per 10 detik per player
+    local lastRequest = player:GetAttribute("lastMusicRequest") or 0
+    if tick() - lastRequest < 10 then
+        return
+    end
+    player:SetAttribute("lastMusicRequest", tick())
+
+    -- Cek queue tidak penuh
+    if #songQueue >= MAX_QUEUE_SIZE then
+        return
+    end
+
+    -- Bersihkan ID
+    local cleanId = tostring(soundId):gsub("rbxassetid://", "")
+    local numId = tonumber(cleanId)
+    if not numId then return end
+
+    -- Cek duplikat di queue
+    for _, s in ipairs(songQueue) do
+        if s.id == tostring(numId) then return end
+    end
+    if currentSong and currentSong.id == tostring(numId) then return end
+
+    -- Get info lagu
+    local info = getMusicInfo(numId)
+    if not info then
+        -- Fallback: buat entry minimal
+        info = {
+            id           = tostring(numId),
+            title        = "Song " .. tostring(numId),
+            artist       = player.DisplayName or player.Name,
+            image        = "rbxassetid://71878240456460",
+            duration     = "0:00",
+            durationSecs = 300,
+        }
+    end
+    info.requestedBy = player.DisplayName or player.Name
+
+    table.insert(songQueue, info)
+    print("[MusicServer] Queued:", info.title, "by", player.Name)
+
+    broadcastQueue()
+
+    -- Mulai putar jika belum ada yang main
+    -- Jika sedang play (baik AutoPlay atau request), tunggu selesai dulu baru lanjut queue
+    if not isPlaying then
+        playNext()
+    end
+end)
+
+-- Client vote skip
+VoteSkip.OnServerEvent:Connect(function(player)
+    if not currentSong then return end
+    if skipVoters[player.UserId] then return end  -- sudah vote
+
+    skipVoters[player.UserId] = true
+    broadcastSkipVotes()
+
+    local count = 0
+    for _ in pairs(skipVoters) do count = count + 1 end
+
+    -- Cek apakah sudah cukup vote
+    local needed = math.min(SKIP_VOTES_REQUIRED, math.max(1, getPlayerCount()))
+    if count >= needed then
+        print("[MusicServer] Skip vote passed:", count, "/", needed)
+        skipVoters = {}
+        songEndedDebounce = false
+        SongEnded:FireAllClients()
+        task.wait(0.3)
+        playNext()
+    end
+end)
+
+-- Admin skip langsung
+AdminSkip.OnServerEvent:Connect(function(player)
+    if not isAdminPlayer(player) then return end
+    if not currentSong then return end
+
+    print("[MusicServer] Admin skip by:", player.Name)
+    skipVoters = {}
+    songEndedDebounce = false
+    SongEnded:FireAllClients()
+    task.wait(0.3)
+    playNext()
+end)
+
+-- Admin pause/resume — hanya mute/unmute semua client, server tetap jalan
+local isPaused = false
+AdminPause.OnServerEvent:Connect(function(player)
+    if not isAdminPlayer(player) then return end
+    isPaused = not isPaused
+    PauseState:FireAllClients(isPaused)
+    print("[MusicServer] Admin", isPaused and "muted" or "unmuted", "music by:", player.Name)
+end)
+
+-- Client join: kirim state saat ini
+GetSyncState.OnServerInvoke = function(player)
+    local queueData = {}
+    for _, song in ipairs(songQueue) do
+        table.insert(queueData, {
+            id          = song.id,
+            title       = song.title,
+            artist      = song.artist,
+            image       = song.image,
+            duration    = song.duration,
+            requestedBy = song.requestedBy,
+        })
+    end
+
+    local skipCount = 0
+    for _ in pairs(skipVoters) do skipCount = skipCount + 1 end
+
+    local currentData = nil
+    if currentSong then
+        local elapsed = tick() - currentSong.startTime
+        currentData = {
+            id           = currentSong.id,
+            title        = currentSong.title,
+            artist       = currentSong.artist,
+            image        = currentSong.image,
+            duration     = currentSong.duration,
+            durationSecs = currentSong.durationSecs,
+            startTime    = currentSong.startTime,
+            elapsed      = elapsed,
+            requestedBy  = currentSong.requestedBy,
+            isAutoPlay   = currentSong.isAutoPlay or false,
+        }
+    end
+
+    return {
+        current    = currentData,
+        queue      = queueData,
+        skipCount  = skipCount,
+        skipNeeded = SKIP_VOTES_REQUIRED,
+        hasVoted   = skipVoters[player.UserId] == true,
+    }
+end
+
+-- Get info lagu dari ID (untuk client request info)
+GetMusicInfo.OnServerInvoke = function(player, soundId)
+    return getMusicInfo(soundId)
+end
+
+-- Cleanup saat player keluar
+Players.PlayerRemoving:Connect(function(player)
+    -- Hapus vote skip player yang keluar
+    if skipVoters[player.UserId] then
+        skipVoters[player.UserId] = nil
+        broadcastSkipVotes()
+    end
+end)
+
+-- ============================================================
+-- SAVE MUSIC CODES TO PLAYLIST (Admin Only, DataStore)
+-- ============================================================
+local DataStoreService = game:GetService("DataStoreService")
+local SavedMusicStore = DataStoreService:GetDataStore("SavedMusicCodes")
+
+local AddSongToPlaylist = getOrCreate(MusicRemotes, "AddSongToPlaylist", "RemoteFunction")
+local GetSavedSongs     = getOrCreate(MusicRemotes, "GetSavedSongs",     "RemoteFunction")
+local GetPlaylists      = getOrCreate(MusicRemotes, "GetPlaylists",      "RemoteFunction")
+local CheckAdmin        = getOrCreate(MusicRemotes, "CheckAdmin",        "RemoteFunction")
+local PlaylistUpdated   = getOrCreate(MusicRemotes, "PlaylistUpdated",   "RemoteEvent")
+local GetPlaylistSongs  = getOrCreate(MusicRemotes, "GetPlaylistSongs",  "RemoteFunction")
+local RemoveSongFromPlaylist = getOrCreate(MusicRemotes, "RemoveSongFromPlaylist", "RemoteFunction")
+local GetAllSongsRemote = getOrCreate(MusicRemotes, "GetAllSongs", "RemoteFunction")
+
+-- Return daftar playlist names ke client
+GetPlaylists.OnServerInvoke = function(player)
+	local names = {}
+	for _, pl in ipairs(MusicData.Playlists) do
+		table.insert(names, pl.name)
+	end
+	return names
+end
+
+-- Return songs dari playlist tertentu (untuk semua player)
+GetPlaylistSongs.OnServerInvoke = function(player, playlistName)
+	if not playlistName then return {} end
+	for _, pl in ipairs(MusicData.Playlists) do
+		if pl.name == playlistName then
+			local songs = {}
+			for _, s in ipairs(pl.songs) do
+				table.insert(songs, {
+					id = tostring(s.id),
+					title = s.title or "Unknown",
+					artist = s.artist or "Unknown",
+					image = s.image or "rbxassetid://71878240456460",
+					verified = s.verified or false,
+				})
+			end
+			return songs
+		end
+	end
+	return {}
+end
+
+-- Cek apakah player admin
+CheckAdmin.OnServerInvoke = function(player)
+	return isAdminPlayer(player)
+end
+
+-- Get semua lagu dari semua playlist (untuk remove popup)
+GetAllSongsRemote.OnServerInvoke = function(player)
+	if not isAdminPlayer(player) then return {} end
+	local allSongs = {}
+	local seenIds = {}
+	for _, pl in ipairs(MusicData.Playlists) do
+		for _, s in ipairs(pl.songs) do
+			local sid = tostring(s.id)
+			if not seenIds[sid] then
+				seenIds[sid] = true
+				table.insert(allSongs, {
+					id = sid,
+					title = s.title or "Unknown",
+					artist = s.artist or "Unknown",
+					image = s.image or "rbxassetid://71878240456460",
+					playlist = pl.name,
+				})
+			end
+		end
+	end
+	return allSongs
+end
+
+-- Admin hapus lagu dari semua playlist
+RemoveSongFromPlaylist.OnServerInvoke = function(player, songId)
+	if not isAdminPlayer(player) then
+		return {success = false, message = "Not authorized"}
+	end
+	if not songId then
+		return {success = false, message = "Missing song ID"}
+	end
+
+	local cleanId = tostring(songId):gsub("rbxassetid://", "")
+	local removedTitle = nil
+
+	-- Hapus dari semua playlist di runtime
+	for _, pl in ipairs(MusicData.Playlists) do
+		for i = #pl.songs, 1, -1 do
+			if tostring(pl.songs[i].id) == cleanId then
+				removedTitle = pl.songs[i].title
+				table.remove(pl.songs, i)
+			end
+		end
+	end
+
+	-- Hapus dari DataStore semua playlist
+	for _, pl in ipairs(MusicData.Playlists) do
+		local storeKey = "playlist_" .. pl.name
+		pcall(function()
+			SavedMusicStore:UpdateAsync(storeKey, function(oldData)
+				if not oldData then return oldData end
+				for i = #oldData, 1, -1 do
+					if tostring(oldData[i].id) == cleanId then
+						table.remove(oldData, i)
+					end
+				end
+				return oldData
+			end)
+		end)
+	end
+
+	-- Notify semua client
+	for _, pl in ipairs(MusicData.Playlists) do
+		local updatedSongs = {}
+		for _, s in ipairs(pl.songs) do
+			table.insert(updatedSongs, {
+				id = tostring(s.id),
+				title = s.title or "Unknown",
+				artist = s.artist or "Unknown",
+				image = s.image or "rbxassetid://71878240456460",
+				verified = s.verified or false,
+			})
+		end
+		PlaylistUpdated:FireAllClients(pl.name, updatedSongs)
+	end
+
+	print("[MusicServer] Admin", player.Name, "removed song", removedTitle or cleanId)
+	return {success = true, message = "Removed: " .. (removedTitle or cleanId)}
+end
+
+-- Admin tambah lagu ke playlist dan simpan ke DataStore
+AddSongToPlaylist.OnServerInvoke = function(player, songCode, playlistName, customName)
+	if not isAdminPlayer(player) then
+		return {success = false, message = "Not authorized"}
+	end
+
+	if not songCode or not playlistName then
+		return {success = false, message = "Missing data"}
+	end
+
+	local cleanId = tostring(songCode):gsub("rbxassetid://", "")
+	local numId = tonumber(cleanId)
+	if not numId then
+		return {success = false, message = "Invalid music code"}
+	end
+
+	-- Get info dari MarketplaceService
+	local info = getMusicInfo(numId)
+	if not info then
+		info = {
+			id = tostring(numId),
+			title = "Song " .. tostring(numId),
+			artist = "Unknown",
+			image = "rbxassetid://71878240456460",
+			duration = "0:00",
+		}
+	end
+
+	-- Override nama jika admin memberikan custom name
+	if customName and customName ~= "" then
+		info.title = customName
+	end
+
+	-- Simpan ke DataStore
+	local storeKey = "playlist_" .. playlistName
+	local ok, err = pcall(function()
+		SavedMusicStore:UpdateAsync(storeKey, function(oldData)
+			oldData = oldData or {}
+			-- Cek duplikat
+			for _, s in ipairs(oldData) do
+				if s.id == info.id then return oldData end
+			end
+			table.insert(oldData, {
+				id = info.id,
+				title = info.title,
+				artist = info.artist,
+				image = info.image,
+				addedBy = player.Name,
+				addedAt = os.time(),
+			})
+			return oldData
+		end)
+	end)
+
+	if not ok then
+		warn("[MusicServer] DataStore save failed:", err)
+		return {success = false, message = "DataStore error"}
+	end
+
+	-- Tambah ke MusicData runtime (agar langsung terlihat tanpa restart)
+	for _, pl in ipairs(MusicData.Playlists) do
+		if pl.name == playlistName then
+			-- Cek duplikat
+			local exists = false
+			for _, s in ipairs(pl.songs) do
+				if tostring(s.id) == info.id then exists = true break end
+			end
+			if not exists then
+				table.insert(pl.songs, {
+					id = info.id,
+					title = info.title,
+					artist = info.artist,
+					image = info.image,
+					verified = true,
+				})
+			end
+			break
+		end
+	end
+
+	print("[MusicServer] Admin", player.Name, "added song", info.title, "to playlist", playlistName)
+
+	-- Notify semua client bahwa playlist berubah
+	local updatedSongs = {}
+	for _, pl in ipairs(MusicData.Playlists) do
+		if pl.name == playlistName then
+			for _, s in ipairs(pl.songs) do
+				table.insert(updatedSongs, {
+					id = tostring(s.id),
+					title = s.title or "Unknown",
+					artist = s.artist or "Unknown",
+					image = s.image or "rbxassetid://71878240456460",
+					verified = s.verified or false,
+				})
+			end
+			break
+		end
+	end
+	PlaylistUpdated:FireAllClients(playlistName, updatedSongs)
+
+	return {success = true, message = "Song added: " .. info.title}
+end
+
+-- Get saved songs dari DataStore
+GetSavedSongs.OnServerInvoke = function(player, playlistName)
+	if not playlistName then return {} end
+	local storeKey = "playlist_" .. playlistName
+	local ok, data = pcall(function()
+		return SavedMusicStore:GetAsync(storeKey)
+	end)
+	if ok and data then return data end
+	return {}
+end
+
+-- Load saved songs ke MusicData saat server start
+task.spawn(function()
+	for _, pl in ipairs(MusicData.Playlists) do
+		local storeKey = "playlist_" .. pl.name
+		local ok, data = pcall(function()
+			return SavedMusicStore:GetAsync(storeKey)
+		end)
+		if ok and data and type(data) == "table" then
+			for _, saved in ipairs(data) do
+				local exists = false
+				for _, s in ipairs(pl.songs) do
+					if tostring(s.id) == tostring(saved.id) then exists = true break end
+				end
+				if not exists then
+					table.insert(pl.songs, {
+						id = saved.id,
+						title = saved.title or "Unknown",
+						artist = saved.artist or "Unknown",
+						image = saved.image or "rbxassetid://71878240456460",
+						verified = true,
+					})
+				end
+			end
+			print("[MusicServer] Loaded", #data, "saved songs for playlist:", pl.name)
+		end
+	end
+end)
+
+print("[MusicServer] Loaded successfully")
+
+-- ============================================================
+-- AUTO PLAY STARTER
+-- Mulai play saat server start (queue kosong = autoplay langsung)
+-- ============================================================
+task.spawn(function()
+    task.wait(2) -- tunggu semua remote & playlist loaded dari DataStore
+    -- Build autoplay list pertama kali
+    autoPlayList = buildAutoPlaylist()
+    shuffleTable(autoPlayList)
+    print("[MusicServer] AutoPlay ready:", #autoPlayList, "songs available")
+    -- Mulai play (queue pasti kosong saat start, jadi autoplay)
+    if not isPlaying then
+        playNext()
+    end
+end)
