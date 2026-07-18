@@ -1,5 +1,16 @@
 [
-  { "creatorId": "8996507682", "productId": "MusicCenz" },
-  { "creatorId": "987654321", "productId": "advance-salon-luxury-kit", "expiresAt": 1780000000 },
-  { "creatorId": "111222333", "productId": "advance-salon-luxury-kit", "revoked": true }
+  {
+    "creatorId": "8996507682",
+    "creatorType": "User",
+    "productId": "NAMA-PRODUK",
+    "revoked": false,
+    "expiresAt": null
+  },
+  {
+    "creatorId": "987654",
+    "creatorType": "Group",
+    "ownerUserId": "111222",
+    "productId": "NAMA-PRODUK",
+    "revoked": false
+  }
 ]
