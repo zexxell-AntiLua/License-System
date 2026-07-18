@@ -1,0 +1,146 @@
+-- ============================================================
+-- Graypolea GControl - Server Script
+-- ============================================================
+
+-- ── Services & modules ─────────────────────────────────
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players           = game:GetService("Players")
+
+local GControlFolder = ReplicatedStorage:WaitForChild("Graypolea_GControl")
+local Config         = require(GControlFolder.Config)
+local System         = require(GControlFolder.GraypoleaSystem.System)
+local GInput         = GControlFolder:WaitForChild("GInput")
+
+-- ── System state ───────────────────────────────────────
+local lightState = {
+	["MasterMode"]   = nil,
+	["BeatMode"]     = nil,
+	["LastColor"]    = nil,
+	["IsOn"]         = false,
+	["BeatOnlyMode"] = false,
+}
+
+print("✅ [GControl] System aktif.")
+
+-- ════════════════════════════════════════════════════
+-- Sync state ke player baru saat join
+-- ════════════════════════════════════════════════════
+Players.PlayerAdded:Connect(function(player)
+	task.wait(3)
+
+	if lightState.IsOn then
+		GInput:FireClient(player, "CMD", "On")
+		GInput:FireClient(player, "CMD", "Dimness", 1)
+	else
+		GInput:FireClient(player, "CMD", "Off")
+	end
+	if lightState.MasterMode then
+		GInput:FireClient(player, "SYNC_MODE", "MASTER", lightState.MasterMode)
+	end
+	if lightState.BeatMode then
+		GInput:FireClient(player, "SYNC_MODE", "BEAT", lightState.BeatMode)
+	end
+	if lightState.LastColor then
+		GInput:FireClient(player, "CMD", "Color", lightState.LastColor)
+	end
+	GInput:FireClient(player, "SYNC_MODE", "BEAT_ONLY", lightState.BeatOnlyMode or false)
+end)
+
+-- ════════════════════════════════════════════════════
+-- Handle incoming client events
+-- ════════════════════════════════════════════════════
+GInput.OnServerEvent:Connect(function(sender, eventType, command, param1, param2)
+
+	-- ── REQUEST_SYNC: client minta sync state saat join ──
+	if eventType == "REQUEST_SYNC" then
+		task.wait(0.5)
+		if lightState.IsOn then
+			GInput:FireClient(sender, "CMD", "On")
+			GInput:FireClient(sender, "CMD", "Dimness", 1)
+		else
+			GInput:FireClient(sender, "CMD", "Off")
+		end
+		if lightState.MasterMode then
+			GInput:FireClient(sender, "SYNC_MODE", "MASTER", lightState.MasterMode)
+		end
+		if lightState.BeatMode then
+			GInput:FireClient(sender, "SYNC_MODE", "BEAT", lightState.BeatMode)
+		end
+		if lightState.LastColor then
+			GInput:FireClient(sender, "CMD", "Color", lightState.LastColor)
+		end
+		GInput:FireClient(sender, "SYNC_MODE", "BEAT_ONLY", lightState.BeatOnlyMode or false)
+		return
+	end
+
+	-- ── CMD: perintah langsung ke lampu ──────────────────
+	if eventType == "CMD" then
+		if command == "On"    then lightState.IsOn = true  end
+		if command == "Off"   then lightState.IsOn = false end
+		if command == "Color" then lightState.LastColor = param1 end
+
+		System.sendToLights(command, param1, param2)
+		GInput:FireAllClients("CMD", command, param1, param2)
+
+		-- ── MODE: perubahan mode ──────────────────────────────
+	elseif eventType == "MODE" then
+		if command == "RESET_ALL" then
+			lightState.MasterMode   = nil
+			lightState.BeatMode     = nil
+			lightState.IsOn         = true
+			lightState.BeatOnlyMode = false
+			System.SetMode("RESET_ALL", nil)
+			GInput:FireAllClients("SYNC_MODE", "RESET_ALL", nil)
+			GInput:FireAllClients("SYNC_MODE", "BEAT_ONLY", false)
+
+		elseif command == "POS" or command == "MASTER" then
+			lightState.MasterMode = param1
+			System.SetMode("MASTER", param1)
+			GInput:FireAllClients("SYNC_MODE", "MASTER", param1)
+
+		elseif command == "BEAT" then
+			lightState.BeatMode = param1
+			System.SetMode("BEAT", param1)
+			GInput:FireAllClients("SYNC_MODE", "BEAT", param1)
+
+		elseif command == "BEAT_ONLY" then
+			lightState.BeatOnlyMode = param1
+			if System.BeatOnlyMode ~= nil then
+				System.BeatOnlyMode = param1
+			end
+			GInput:FireAllClients("SYNC_MODE", "BEAT_ONLY", param1)
+		end
+	end
+end)
+
+-- ════════════════════════════════════════════════════
+-- Auto-start task
+-- ════════════════════════════════════════════════════
+task.spawn(function()
+	task.wait(Config.SystemSettings.StartDelay or 3)
+
+	if Config.SystemSettings.AutoStart then
+		print("[GControl] AutoStart initiated...")
+
+		lightState.IsOn       = true
+		lightState.MasterMode = Config.SystemSettings.DefaultMode
+		lightState.BeatMode   = "PARTY_AUTO"
+
+		local defaultBeatOnly   = Config.SystemSettings.DefaultBeatOnly or false
+		lightState.BeatOnlyMode = defaultBeatOnly
+
+		System.sendToLights("On")
+		System.sendToLights("Dimness", 1)
+		System.SetMode("MASTER", lightState.MasterMode)
+		System.SetMode("BEAT",   lightState.BeatMode)
+		System.BeatOnlyMode = defaultBeatOnly
+
+		GInput:FireAllClients("CMD", "On")
+		GInput:FireAllClients("CMD", "Dimness", 1)
+		GInput:FireAllClients("SYNC_MODE", "MASTER",    lightState.MasterMode)
+		GInput:FireAllClients("SYNC_MODE", "BEAT",      lightState.BeatMode)
+		GInput:FireAllClients("SYNC_MODE", "BEAT_ONLY", defaultBeatOnly)
+	end
+end)
+
+System.StartAuto()
