@@ -1,0 +1,5 @@
+[
+  { "creatorId": "8996507682", "productId": "MusicCenz" },
+  { "creatorId": "987654321", "productId": "advance-salon-luxury-kit", "expiresAt": 1780000000 },
+  { "creatorId": "111222333", "productId": "advance-salon-luxury-kit", "revoked": true }
+]
