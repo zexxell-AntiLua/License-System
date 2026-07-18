@@ -3,7 +3,7 @@
     "creatorId": "8996507682",
     "creatorType": "User",
     "productId": "NAMA-PRODUK",
-    "revoked": false,
+    "revoked": true,
     "expiresAt": null
   },
   {
