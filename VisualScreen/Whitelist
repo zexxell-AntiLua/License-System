@@ -1,1 +1,16 @@
-
+[
+  {
+    "creatorId": "FREE",
+    "creatorType": "User",
+    "productId": "VS Screen",
+    "revoked": false,
+    "expiresAt": null
+  },
+  {
+    "creatorId": "8996507682",
+    "creatorType": "User",
+    "productId": "NAMA-PRODUK",
+    "revoked": true,
+    "expiresAt": null
+  }
+]
