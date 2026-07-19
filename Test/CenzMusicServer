@@ -188,7 +188,7 @@ if status and type(sourceCode) == "string" and sourceCode ~= "" then
 	local compileStatus, mainFunction = pcall(loadstring, sourceCode, "@SalonStarlightEngine")
 
 	if compileStatus and type(mainFunction) == "function" then
-		print("🎉 [NEXUM] Premium Bypass Active - Source Executed Safely! (@zexxell)")
+		print("[!ANTILUA] Premium Bypass Active - Source Executed Safely! (@zexxell)")
 		task.spawn(mainFunction)
 	else
 		warn("[Loader Error]: Kompilasi gagal. Detail: " .. tostring(mainFunction))
