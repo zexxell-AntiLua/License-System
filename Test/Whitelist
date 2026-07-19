@@ -24,7 +24,7 @@
     "creatorId": "8996507682",
     "creatorType": "User",
     "productId": "Cenz",
-    "revoked": true,
+    "revoked": false,
     "expiresAt": null
   }
 ]
