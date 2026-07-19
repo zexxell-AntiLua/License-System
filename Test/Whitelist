@@ -24,7 +24,7 @@
     "creatorId": "8996507682",
     "creatorType": "User",
     "productId": "Asset Mahal Pokoknya",
-    "revoked": true,
+    "revoked": false,
     "expiresAt": null
   }
 ]
