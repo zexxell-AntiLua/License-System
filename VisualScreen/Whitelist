@@ -7,10 +7,10 @@
     "expiresAt": null
   },
   {
-    "creatorId": "8996507682",
-    "creatorType": "User",
-    "productId": "NAMA-PRODUK",
-    "revoked": true,
+    "creatorId": "287908640",
+    "creatorType": "Community",
+    "productId": "VS Screen",
+    "revoked": false,
     "expiresAt": null
   }
 ]
