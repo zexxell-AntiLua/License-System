@@ -2,10 +2,10 @@
   {
     "creatorId": "123456789",
     "creatorType": "User",
-    "productId": "ROBUX_HUB_V1",
+    "productId": "VS SCREEN",
     "revoked": false,
     "expiresAt": null,
-    "signature": "3f91a0b2"
+    "signature": "10e501c4"
   },
   {
     "creatorId": "987654321",
