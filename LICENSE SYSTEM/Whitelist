@@ -1,0 +1,18 @@
+[
+  {
+    "creatorId": "123456789",
+    "creatorType": "User",
+    "productId": "ROBUX_HUB_V1",
+    "revoked": false,
+    "expiresAt": null,
+    "signature": "3f91a0b2"
+  },
+  {
+    "creatorId": "987654321",
+    "creatorType": "Group",
+    "productId": "ROBUX_HUB_V1",
+    "revoked": false,
+    "expiresAt": 1780000000,
+    "signature": "a82c1f90"
+  }
+]
