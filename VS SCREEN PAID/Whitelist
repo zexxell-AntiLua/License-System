@@ -1,11 +1,11 @@
 [
   {
-    "creatorId": "123456789",
+    "creatorId": "8996507682",
     "creatorType": "User",
     "productId": "VS SCREEN",
     "revoked": false,
     "expiresAt": null,
-    "signature": "10e501c4"
+    "signature": "573d787d"
   },
   {
     "creatorId": "987654321",
