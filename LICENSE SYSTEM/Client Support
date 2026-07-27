@@ -1,0 +1,182 @@
+--[[============================================================================
+    ▲ A N T I L U A   C L I E N T   T R I P W I R E   S E N T I N E L ▲
+    Version 2.0.0-ULTRA (Enterprise Client Security Edition)
+    Placement: StarterPlayerScripts (Must be a LocalScript)
+    Developed by @zexxell & AntiLua Security Architecture Team
+
+    SECURITY FEATURES v2.0.0-ULTRA (CLIENT):
+    ----------------------------------------------------------------------------
+    [NATIVE-SNAPSHOT] Snapshots global functions to prevent method hijacking.
+    [HOOK-SCANNER]    Detects metatable hooking on FireServer and Instance methods.
+    [DUAL-WATCHDOG]   Parallel background threads enforcing script runtime existence.
+    [EXPLOIT-SCAN]    Scans environment for active executors & injected functions.
+    [TRIPWIRE-CORE]   Instant server detonation upon tamper/deletion detection.
+==============================================================================]]
+
+--==========================================================================--
+-- 1. NATIVE FUNCTION SNAPSHOTTING (ANTI-MONKEY PATCHING)
+--==========================================================================--
+
+local _pcall          = pcall
+local _xpcall         = xpcall
+local _type           = type
+local _typeof         = typeof
+local _tostring       = tostring
+local _getfenv        = getfenv
+local _rawget         = rawget
+local _rawset         = rawset
+local _osclock        = os.clock
+local _taskwait       = task.wait
+local _taskspawn      = task.spawn
+local _taskdelay      = task.delay
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
+local Workspace          = game:GetService("Workspace")
+local LocalPlayer        = Players.LocalPlayer
+
+--==========================================================================--
+-- 2. DYNAMIC HANDSHAKE CORE (FETCH SERVER RANDOMLY GENERATED KEY)
+--==========================================================================--
+
+local dynamicKey = Workspace:GetAttribute("AntiLuaNetKey")
+
+if not dynamicKey then
+	local startTime = _osclock()
+	while not dynamicKey and (_osclock() - startTime) < 12 do
+		_taskwait(0.5)
+		dynamicKey = Workspace:GetAttribute("AntiLuaNetKey")
+	end
+end
+
+if not dynamicKey or _type(dynamicKey) ~= "string" or dynamicKey == "" then
+	LocalPlayer:Kick("\n[!AntiLua Sentinel] Handshake Gagal: Kunci Jaringan Tidak Ditemukan.")
+	return
+end
+
+local BrandingRemote = ReplicatedStorage:WaitForChild(dynamicKey, 15)
+
+if not BrandingRemote or not BrandingRemote:IsA("RemoteEvent") then
+	LocalPlayer:Kick("\n[!AntiLua Sentinel] Keamanan Gagal Dimuat: Remote Bridge Terisolasi.")
+	return
+end
+
+--==========================================================================--
+-- 3. DETONATION TRAP MECHANISM
+--==========================================================================--
+
+local isDetonated = false
+
+local function triggerServerTrap(reasonTag)
+	if isDetonated then return end
+	isDetonated = true
+
+	-- Tembak Remote Event untuk memicu Nuclear Crash & Webhook Log di Server
+	_pcall(function()
+		BrandingRemote:FireServer(reasonTag or "CLIENT_TAMPER_DETECTED")
+	end)
+
+	-- Karantina lokal langsung jika koneksi jaringan tertahan
+	_taskdelay(0.2, function()
+		_pcall(function()
+			LocalPlayer:Kick("\n[!AntiLua Sentinel] Akses Ditolak: Deteksi Intervensi Client.")
+		end)
+	end)
+end
+
+-- Menerima Banner dari Server jika lisensi sukses diverifikasi
+BrandingRemote.OnClientEvent:Connect(function(bannerText)
+	if _type(bannerText) == "string" then
+		print(bannerText)
+	end
+end)
+
+--==========================================================================--
+-- 4. ADVANCED HOOKING & ENVIRONMENT INTEGRITY CHECK
+--==========================================================================--
+
+local function checkMetatableIntegrity()
+	-- Test 1: Verifikasi apakah FireServer masih berupa method bawaan Roblox
+	local ok, isFunc = _pcall(function()
+		return _type(BrandingRemote.FireServer) == "function"
+	end)
+	if not ok or not isFunc then return false end
+
+	-- Test 2: Verifikasi metatable pada game object
+	local metaOk, meta = _pcall(function()
+		return getmetatable(game)
+	end)
+	if metaOk and _type(meta) == "table" and _rawget(meta, "__index") then
+		-- Jika __index di-hook secara kasar oleh exploit script
+		if _type(meta.__index) ~= "function" then
+			return false
+		end
+	end
+
+	return true
+end
+
+--==========================================================================--
+-- 5. EXPLOIT GLOBALS & MEMORY SCANNER
+--==========================================================================--
+
+local EXPLOIT_GLOBALS = {
+	"getgenv", "getrenv", "getreg", "getgc",
+	"hookmetamethod", "hookfunction", "newcclosure",
+	"replaceclosure", "checkcaller", "decompile",
+	"rconsoleprint", "identifyexecutor", "getsenv"
+}
+
+local function scanExploitEnvironment()
+	local env = _getfenv()
+	local globalTable = _G or {}
+
+	for i = 1, #EXPLOIT_GLOBALS do
+		local gName = EXPLOIT_GLOBALS[i]
+		if env[gName] ~= nil or globalTable[gName] ~= nil then
+			return true, gName
+		end
+	end
+
+	return false, nil
+end
+
+--==========================================================================--
+-- 6. MULTI-THREADED WATCHDOG TRAPS
+--==========================================================================--
+
+-- [ TRAP A: ANCESTRY & SCRIPT PARENTING MONITOR ]
+script.AncestryChanged:Connect(function(_, parent)
+	if not parent or not script:IsDescendantOf(game) then
+		triggerServerTrap("SCRIPT_DELETED_OR_MOVED")
+	end
+end)
+
+-- [ TRAP B: PARALLEL MEMORY & ENVIRONMENT WATCHDOG ]
+_taskspawn(function()
+	while _taskwait(3) do
+		-- 1. Cek Integritas Metatable / Function Hooking
+		if not checkMetatableIntegrity() then
+			triggerServerTrap("METATABLE_HOOK_DETECTED")
+			break
+		end
+
+		-- 2. Scan Keberadaan Exploit Globals
+		local isExploit, detectedGlobal = scanExploitEnvironment()
+		if isExploit then
+			triggerServerTrap("EXPLOIT_GLOBAL_DETECTED:" .. _tostring(detectedGlobal))
+			break
+		end
+	end
+end)
+
+-- [ TRAP C: HARD REFERENCE PARENT WATCHDOG (PREVENT SCRIPT NULLIFICATION) ]
+_taskspawn(function()
+	local targetParent = script.Parent
+	while _taskwait(2) do
+		if script.Parent ~= targetParent or not script:IsDescendantOf(Players.LocalPlayer) then
+			triggerServerTrap("PARENT_NULLIFIED")
+			break
+		end
+	end
+end)
