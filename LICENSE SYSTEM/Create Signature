@@ -1,0 +1,17 @@
+def generate_signature(creator_id, product_id, salt):
+    hash_val = 2166136261
+    input_str = f"{creator_id}:{product_id.lower()}:{salt}"
+    
+    for char in input_str:
+        hash_val ^= ord(char)
+        hash_val = (hash_val * 16777619) & 0xFFFFFFFF
+        
+    return f"{hash_val:08x}"
+
+# Konfigurasi
+SECRET_SALT = "ZEXXELL_ULTRA_SECRET_SALT_2026_#99"
+CREATOR_ID = "123456789"
+PRODUCT_ID = "ROBUX_HUB_V1"
+
+sig = generate_signature(CREATOR_ID, PRODUCT_ID, SECRET_SALT)
+print(f"Signature Unik: {sig}")
