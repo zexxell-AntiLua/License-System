@@ -1,172 +1,95 @@
 --[[============================================================================
-    ▲ A N T I L U A   U L T R A   S E N T I N E L   S E C U R I T Y ▲
-    ----------------------------------------------------------------------------
-    📄 OFFICIAL USER MANUAL & SETUP GUIDE FROM SCRATCH
-    Core Engine Version : v2.0.0-ULTRA (Enterprise Anti-Bypass Edition)
-    
-    [©] Copyright 2026 !AntiLua Community & AntiLua Security Architecture Team.
-    🛡️ System Authorized & Protected strictly by !AntiLua Infrastructure.
-    ✍️ Signed & Developed by: @zexxell & AntiLua Team
-==============================================================================]]
-
---[[
-Halo! Selamat datang di panduan resmi penggunaan AntiLua v2.0.0-ULTRA.
-Manual ini dirancang lengkap dari NOL untuk membantu kamu mengonfigurasi sistem 
-proteksi lisensi generasi terbaru yang kebal terhadap metode Fake Response, 
-HTTP Interception, Memory Tampering, dan Metatable Hooking.
-
+                         !AntiLua LICENSE SYSTEM v2.0.0
+                          DOCUMENTATION & SETUP GUIDE
 ================================================================================
-🚀 APA YANG BARU DI v2.0.0-ULTRA?
-================================================================================
-1. [CANARY-TRAP]     Perangkap HTTP otomatis untuk mendeteksi tools Fake Response.
-2. [HMAC-SIGNATURE]  Sistem validasi hash kriptografi (FNV-1a) dengan Secret Salt.
-3. [HOOK-DETECTOR]   Pemindai native function untuk mendeteksi Global Monkey Patching.
-4. [IMMUTABLE-CFG]   Penguncian tabel Config otomatis (`table.freeze`) dari serangan runtime.
-5. [WATCHDOG-CORE]   Thread pemantau terisolasi yang mengecek lisensi secara berkala.
 
-================================================================================
-📌 LANGKAH 1: PENGATURAN WAJIB DI ROBLOX STUDIO (SECURITY ACCESS)
-================================================================================
-AntiLua membutuhkan akses komunikasi HTTP ke server GitHub/Discord dan eksekusi
-kode cloud aman. Kamu WAJIB mengaktifkan opsi berikut:
-
-1. Buka tempat game kamu di Roblox Studio.
-2. Ke menu atas: [ Home ] -> Klik [ Game Settings ].
-   *(Catatan: Place kamu harus sudah di-publish ke Roblox)*
-3. Pilih tab [ Security ] di panel sebelah kiri.
-4. CENTANG / AKTIFKAN opsi:
-   ✅ Allow HTTP Requests    (Wajib untuk komunikasi Whitelist, Webhook, & Canary)
-5. Klik [ Save ].
-6. Pergi ke folder [ ServerScriptService ] di panel Explorer (kanan).
-7. Klik objek [ ServerScriptService ], lihat panel [ Properties ] di bawahnya.
-8. CENTANG / AKTIFKAN opsi:
-   ✅ LoadstringEnabled      (Wajib untuk memuat Payload script utama kamu dari cloud)
-
-================================================================================
-📌 LANGKAH 2: MEMBUAT SECRET SALT & DATABASE WHITELIST (GITHUB)
-================================================================================
-Pada v2.0.0-ULTRA, setiap entri di database Whitelist direkomendasikan memiliki 
-`signature` unik agar data JSON tidak bisa dipalsukan oleh pembeli/bypasser.
-
---- A. MEMBUAT REPOSITORY GITHUB ---
-1. Buat akun di github.com.
-2. Buat Repository baru dengan status [ PUBLIC ].
-3. Buat file baru di repo tersebut, beri nama: Whitelist.json
-
---- B. FORMAT DATABASE WHITELIST (JSON) ---
-Isi file `Whitelist.json` dengan struktur berikut:
-
-[
-    {
-        "creatorId": "123456789",
-        "creatorType": "User",
-        "productId": "YOUR_PRODUCT_NAME_HERE",
-        "revoked": false,
-        "expiresAt": null,
-        "signature": "3f91a0b2"
-    },
-    {
-        "creatorId": "987654321",
-        "creatorType": "Group",
-        "ownerUserId": "55667788",
-        "productId": "YOUR_PRODUCT_NAME_HERE",
-        "revoked": false,
-        "expiresAt": 1780000000,
-        "signature": "a82c1f90"
-    }
-]
-
-Detail Field JSON:
-• creatorId   : ID Profil User atau ID Group pemilik game Roblox target.
-• creatorType : Tulis "User" jika dipublish di akun pribadi, atau "Group" jika di Group.
-• ownerUserId : (Opsional khusus Group) ID Roblox Owner Group untuk cegah bypass transfer group.
-• productId   : Nama produk kamu (Case-Insensitive / bebas kapital).
-• revoked     : Set `true` jika lisensi user ditarik / diblokir.
-• expiresAt   : Unix Timestamp tanggal kadaluarsa (isi `null` jika PERMANEN).
-• signature   : Kode hash unik keamanan tinggi (Langkah C di bawah).
-
---- C. CARA GENERATE SIGNATURE UNIK (VIA COMMAND BAR ROBLOX STUDIO) ---
-Jalankan script generator ini di Command Bar Roblox Studio milikmu untuk menghitung signature:
+ [!] PENTING: Script ini adalah dokumentasi panduan dan sengaja di-DISABLE.
+     Jangan menghapus file ini agar tim pengembang memiliki acuan konfigurasi.
 
 --------------------------------------------------------------------------------
-local SECRET_SALT = "ZEXXELL_ULTRA_SECRET_SALT_2026_#99" -- Samakan dengan Config
-local CREATOR_ID = "123456789"
-local PRODUCT_ID = "YOUR_PRODUCT_NAME_HERE"
-
-local function getSig(id, prod, salt)
-    local hash = 2166136261
-    local str = tostring(id) .. ":" .. string.lower(prod) .. ":" .. tostring(salt)
-    for i = 1, #str do
-        hash = bit32.bxor(hash, string.byte(str, i))
-        hash = bit32.arshift(hash * 16777619, 0)
-    end
-    return string.format("%08x", hash)
-end
-print("SIGNATURE UNIK:", getSig(CREATOR_ID, PRODUCT_ID, SECRET_SALT))
+1. SYARAT WAJIB ROBLOX STUDIO (PREREQUISITES)
 --------------------------------------------------------------------------------
+Agar sistem proteksi ini dapat berjalan, pastikan 2 opsi berikut sudah AKTIF:
 
-4. Setelah menyimpan `Whitelist.json` di GitHub, klik tombol [ Raw ] di pojok kanan file.
-5. Copy URL link Raw tersebut (Contoh: https://raw.githubusercontent.com/.../Whitelist.json).
+1. Allow HTTP Requests:
+   - Buka Roblox Studio -> Game Settings (Home tab) -> Security
+   - Centang / Aktifkan "Allow HTTP Requests".
 
-================================================================================
-📌 LANGKAH 3: PEMASANGAN CORE ENGINE & KONFIGURASI SCRIPT
-================================================================================
-1. Buat [ Script ] baru di dalam [ ServerScriptService ].
-2. Beri nama, misalnya: AntiLuaSentinelCore
-3. Tempelkan (Paste) seluruh source code `AntiLua v2.0.0-ULTRA` ke dalamnya.
-4. Buka tabel `local Config = { ... }` di bagian atas script, sesuaikan datanya:
-
-   • Config.ProductId    = "Nama produk kamu" (Harus cocok dengan di Whitelist)
-   • Config.SellerName   = "@zexxell" (Nama pembuat / lisensor)
-   • Config.BuyerRef     = "INV-2026-001" (Referensi pembeli / ID Transaksi)
-   • Config.SecretSalt   = "ZEXXELL_ULTRA_SECRET_SALT_2026_#99" (Kunci rahasia hash)
-   • Config.WhitelistUrl = "URL Raw Whitelist.json GitHub kamu"
-   • Config.PayloadUrl   = "URL Raw Script Utama / Payload Produk kamu"
-   • Config.DiscordWebhookUrl = "URL Webhook Discord untuk Telemetri Log"
-
-================================================================================
-📌 LANGKAH 4: MENARUH SCRIPT PAYLOAD UTAMA (PAYLOAD SOURCE)
-================================================================================
-Sistem AntiLua bekerja dengan menyembunyikan script produk utama di cloud (GitHub).
-Script produk HANYA didownload dan dieksekusi jika verifikasi keamanan 100% PASS.
-
-1. Buat file baru di Repo GitHub kamu, contoh: ProductSource.lua
-2. Isi file ini dengan seluruh source code fitur game utama milikmu.
-3. Simpan file, lalu klik [ Raw ] dan copy link URL-nya.
-4. Masukkan link tersebut ke dalam `Config.PayloadUrl` di script Roblox.
-
-================================================================================
-📌 LANGKAH 5: OBAPFUSKASI (SANGAT DIREKOMENDASIKAN)
-================================================================================
-Agar buyer atau exploiters tidak bisa melihat `SecretSalt` atau mengedit logika 
-internal AntiLua:
-1. Obfuskasi script `AntiLuaSentinelCore` menggunakan Obfuscator Luau terpercaya 
-   (seperti Prometheus, Luraph, atau IronBrew) sebelum kamu mendistribusikannya.
-
-================================================================================
-🔍 DIAGNOSTIK & KODE STATUS DETEKSI (TROUBLESHOOTING)
-================================================================================
-Jika terjadi pemutusan koneksi / KICK pada server, cek status alasan di bawah ini:
-
-| Status Reason Tag       | Penyebab Masalah & Solusi                                     |
-| :---------------------- | :------------------------------------------------------------ |
-| `canary-trap-triggered` | **DETEKSI BYPASS!** Bypasser mencoba memalsukan HTTP Response. |
-| `hash-mismatch`         | Signature di JSON Whitelist tidak cocok dengan SecretSalt.    |
-| `environment-tampered` | Terdeteksi Hooking pada fungsi native Luau (`pcall`, `GetAsync`)|
-| `not-whitelisted`       | CreatorId tempat game berjalan tidak terdaftar di Whitelist.  |
-| `revoked`               | Lisensi pengguna telah dicabut (`"revoked": true`).           |
-| `expired`               | Masa berlaku lisensi telah habis (`expiresAt` terlampaui).    |
-| `whitelist-unreachable` | Server gagal menghubungi GitHub / URL Whitelist salah.        |
+2. Loadstring Enabled:
+   - Buka Explorer -> ServerScriptService
+   - Di panel Properties, centang "LoadstringEnabled".
 
 --------------------------------------------------------------------------------
-                  ▲ SYSTEM DIGITAL SIGNATURE VERIFIED ▲
+2. STRUKTUR PENGATURAN CONFIG
 --------------------------------------------------------------------------------
-   Untuk bantuan teknis, upgrade lisensi, atau arsitektur keamanan khusus:
-   
-   🌐 COMMUNITY : !AntiLua Community
-   🛠️ DEVELOPER : AntiLua Security Architecture Team & @zexxell
-   🛡️ INTEGRITY : Secured with Multi-Layered Canary & HMAC Cryptographic Traps
-   
-   "Next-Gen Roblox Asset Security. Uncompromised Protection."
+Isi variabel `Config` pada ServerScript utama AntiLua sesuai data produk Anda:
+
+- Product.Id          : Nama unik produk Anda (Contoh: "MyAdminSystem").
+- Product.SellerName  : Username/Discord Anda sebagai penjual (Contoh: "@Zexxell").
+- Product.BuyerRef    : ID referensi transaksi/pembeli (Contoh: "INV-2026-9921").
+- Network.PrimaryUrl  : URL Raw Github dari file Whitelist JSON utama.
+- Network.FallbackUrl : URL Raw Github alternatif jika GitHub utama down.
+- Network.PayloadUrl  : URL Raw Github dari Script Utama Anda yang ingin dilindungi.
+- Webhook.Url         : Discord Webhook URL untuk logs telemetri.
+- Security.SecretKey  : Key rahasia bebas untuk enkripsi DataStore Cache.
+
 --------------------------------------------------------------------------------
-]]
+3. FORMAT JSON WHITELIST (DI HOSTING GITHUB/SERVER)
+--------------------------------------------------------------------------------
+File Whitelist pada GitHub `PrimaryUrl` harus berformat JSON.
+
+Contoh Format JSON Whitelist Lengkap:
+{
+  "12345678": {
+    "creatorType": "User",
+    "productId": "MyAdminSystem",
+    "revoked": false,
+    "expiresAt": 1893456000
+  },
+  "98765432": {
+    "creatorType": "Group",
+    "ownerUserId": "12345678",
+    "products": ["MyAdminSystem", "OtherProduct"],
+    "revoked": false
+  }
+}
+
+Penjelasan Field JSON:
+- "12345678"   : CreatorId Roblox (User ID atau Group ID yang diberi izin).
+- creatorType  : Jenis pemilik, bisa "User" atau "Group".
+- productId    : Nama produk yang diizinkan untuk User/Group ini.
+- products     : Array jika User/Group memiliki izin banyak produk sekaligus.
+- revoked      : Set `true` untuk memblokir/mencabut lisensi secara paksa.
+- expiresAt    : Epoch timestamp (Detik) masa berlaku lisensi.
+
+--------------------------------------------------------------------------------
+4. BAGAIMANA SISTEM PROTEKSI MULTI-LAYER BEKERJA (LAYERS 1-6)
+--------------------------------------------------------------------------------
+Untuk mencegah False Positive (pembeli sah ter-kick karena GitHub server gangguan),
+AntiLua v2.0.0 menggunakan 6 Layer verifikasi beruntun:
+
+1. Layer 1 (Primary API)  : Memeriksa Whitelist dari Primary GitHub Raw URL.
+2. Layer 2 (Backup API)   : Jika Layer 1 gagal, otomatis memakai Fallback URL.
+3. Layer 3 (Cache DS)     : Jika internet down, menggunakan DataStore Terenkripsi.
+4. Layer 4 (Grace Mode)   : Jika Cache kadaluarsa, diberikan masa tenggang 3 hari.
+5. Layer 5 (Studio Mode)  : Di Roblox Studio, dev diberi kemudahan akses lokal.
+6. Layer 6 (Safe Mode)    : Jika tidak ada koneksi, script tidak menguji payload 
+                            tetapi TIDAK MELEMPAR KICK (Pemain aman).
+
+Sistem HANYA akan melempar KICK jika lisensi terbukti definitif: `revoked = true` 
+atau Creator ID tidak terdaftar sama sekali di Whitelist.
+
+--------------------------------------------------------------------------------
+5. FITUR DISCORD TELEMETRY ENTERPRISE
+--------------------------------------------------------------------------------
+AntiLua mengirimkan laporan detail ke Discord Webhook secara otomatis meliputi:
+- Invoice Ref & Verification Source (API, Backup, atau Cache).
+- Status Engine Indicator (NORMAL / WARNING / TERMINATED).
+- Metodologi Runtime (Owner ID, Creator Type, Server Uptime).
+- Telemetri Server (Memory Usage, Execution Time, Job ID).
+- Place ID Tracker beserta Direct Link ke tempat game Roblox.
+- Player Entity List (Daftar nama & User ID pemain yang sedang aktif).
+
+================================================================================
+                        !ANTILUA NETWORK COMMUNITY
+================================================================================]]
