@@ -25,7 +25,7 @@ local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 local RunService         = game:GetService("RunService")
 
 local SERVER_START_TIME = os.clock()
-local SYSTEM_BOOT_TIME  = os.time()
+local SYSTEM_BOOT_TIME   = os.time()
 local IS_STUDIO         = RunService:IsStudio()
 
 --==========================================================================--
@@ -306,15 +306,51 @@ do
 		if not ok or type(decoded) ~= "table" then return false, "malformed-whitelist", meta end
 
 		local activeEntry = nil
-		for key, val in pairs(decoded) do
-			local e = type(val) == "table" and val or { creatorId = tostring(val) }
-			local eId = tostring(e.creatorId or key)
 
-			if eId == creatorId or eId:upper() == "FREE" then
-				if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
-					if validateProduct(e) then
-						activeEntry = e
-						break
+		-- 1. Cek langsung dengan Creator ID spesifik
+		local targetEntry = decoded[creatorId]
+		
+		-- 2. Jika Creator ID spesifik tidak ditemukan, fallback ke key "FREE"
+		if not targetEntry then
+			targetEntry = decoded["FREE"] or decoded["free"]
+		end
+
+		if targetEntry then
+			local e = type(targetEntry) == "table" and targetEntry or { creatorId = tostring(targetEntry) }
+			if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
+				if validateProduct(e) then
+					activeEntry = e
+				end
+			end
+		else
+			-- 3. Iterasi manual jika JSON berstruktur Array atau Key menggunakan pola eId
+			for key, val in pairs(decoded) do
+				local e = type(val) == "table" and val or { creatorId = tostring(val) }
+				local eId = tostring(e.creatorId or key)
+
+				if eId == creatorId then
+					if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
+						if validateProduct(e) then
+							activeEntry = e
+							break
+						end
+					end
+				end
+			end
+
+			-- Iterasi kedua untuk "FREE" jika ID spesifik di iterasi pertama tidak ada
+			if not activeEntry then
+				for key, val in pairs(decoded) do
+					local e = type(val) == "table" and val or { creatorId = tostring(val) }
+					local eId = tostring(e.creatorId or key)
+
+					if eId:upper() == "FREE" then
+						if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
+							if validateProduct(e) then
+								activeEntry = e
+								break
+							end
+						end
 					end
 				end
 			end
