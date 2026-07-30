@@ -234,7 +234,7 @@ do
 	end
 
 	function Cache.read()
-		if not Config.Cache.Enabled then return nil end
+		if not Config.Cache.Enabled then return end
 		local ok, ds = pcall(function() return DataStoreService:GetDataStore(Config.Cache.DataStoreName) end)
 		if not ok or not ds then return nil end
 
@@ -264,12 +264,15 @@ table.freeze(Cache)
 --==========================================================================--
 local License = {}
 do
-	local function validateProduct(entry)
+	local function validateProduct(entry, isFreeTier)
+		-- Jika lisensi berasal dari key "FREE", izinkan untuk semua produk secara universal
+		if isFreeTier then return true end
+		
 		local target = Config.Product.Id:lower()
-		if entry.productId and tostring(entry.productId):lower() == target then return true end
+		if entry.productId and (tostring(entry.productId):lower() == target or tostring(entry.productId):upper() == "ANTILUA_FREE") then return true end
 		if type(entry.products) == "table" then
 			for _, p in pairs(entry.products) do
-				if tostring(p):lower() == target then return true end
+				if tostring(p):lower() == target or tostring(p):upper() == "ANTILUA_FREE" then return true end
 			end
 		end
 		return (entry.productId == nil and entry.products == nil)
@@ -306,55 +309,31 @@ do
 		if not ok or type(decoded) ~= "table" then return false, "malformed-whitelist", meta end
 
 		local activeEntry = nil
+		local freeFallbackEntry = nil
 
-		-- 1. Cek langsung dengan Creator ID spesifik
-		local targetEntry = decoded[creatorId]
-		
-		-- 2. Jika Creator ID spesifik tidak ditemukan, fallback ke key "FREE"
-		if not targetEntry then
-			targetEntry = decoded["FREE"] or decoded["free"]
-		end
+		-- Iterasi Whitelist: Prioritaskan Creator ID Spesifik terlebih dahulu, simpan "FREE" sebagai cadangan
+		for key, val in pairs(decoded) do
+			local e = type(val) == "table" and val or { creatorId = tostring(val) }
+			local eId = tostring(e.creatorId or key)
 
-		if targetEntry then
-			local e = type(targetEntry) == "table" and targetEntry or { creatorId = tostring(targetEntry) }
-			if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
-				if validateProduct(e) then
-					activeEntry = e
-				end
-			end
-		else
-			-- 3. Iterasi manual jika JSON berstruktur Array atau Key menggunakan pola eId
-			for key, val in pairs(decoded) do
-				local e = type(val) == "table" and val or { creatorId = tostring(val) }
-				local eId = tostring(e.creatorId or key)
-
-				if eId == creatorId then
-					if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
-						if validateProduct(e) then
-							activeEntry = e
-							break
-						end
+			if eId == creatorId then
+				if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
+					if validateProduct(e, false) then
+						activeEntry = e
+						break -- Creator ID spesifik ditemukan dan valid!
 					end
 				end
-			end
-
-			-- Iterasi kedua untuk "FREE" jika ID spesifik di iterasi pertama tidak ada
-			if not activeEntry then
-				for key, val in pairs(decoded) do
-					local e = type(val) == "table" and val or { creatorId = tostring(val) }
-					local eId = tostring(e.creatorId or key)
-
-					if eId:upper() == "FREE" then
-						if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
-							if validateProduct(e) then
-								activeEntry = e
-								break
-							end
-						end
+			elseif eId:upper() == "FREE" then
+				if (not Config.Security.VerifyCreatorType) or (not e.creatorType) or (tostring(e.creatorType):lower() == creatorType:lower()) then
+					if validateProduct(e, true) then
+						freeFallbackEntry = e
 					end
 				end
 			end
 		end
+
+		-- Jika tidak ada lisensi Creator ID spesifik, gunakan lisensi versi FREE
+		activeEntry = activeEntry or freeFallbackEntry
 
 		local record = { valid = false, reason = "not-whitelisted" }
 		if not activeEntry then
